@@ -205,5 +205,31 @@ class HypothesisTest(unittest.TestCase):
         self.assertEqual(dest.read_bytes(), b"keep me")
 
 
+    # ----- CSV export (v0.2) -------------------------------------------
+    def test_export_csv_long_format(self):
+        import csv as _csv
+        path, ids = self._two_by_two()
+        out = self.dir / "m.csv"
+        res = core.export(path, out, self.SECRET, "csv")
+        self.assertEqual(res["format"], "csv")
+        rows = list(_csv.reader(out.read_text().splitlines()))
+        self.assertEqual(rows[0],
+                         ["evidence", "source", "credibility", "hypothesis", "rating_value", "rating_label"])
+        self.assertEqual(len(rows) - 1, 4)                       # four rated cells
+        self.assertTrue(any(r[4] == "-2" for r in rows[1:]))     # the very-inconsistent cell
+
+    def test_export_csv_guards_formula_injection(self):
+        p = self.analysis()
+        p1 = self._seq(); core.add_hypothesis(p, p1, self.SECRET, "=cmd")
+        p2 = self._seq(); eid = core.add_evidence(p1, p2, self.SECRET, "=danger", credibility=1)["evidence_id"]
+        data, _ = core._load(p2, self.SECRET); hid = data["hypotheses"][0]["id"]
+        p3 = self._seq(); core.rate(p2, p3, self.SECRET, eid, hid, 1)
+        out = self.dir / "g.csv"
+        core.export(p3, out, self.SECRET, "csv")
+        text = out.read_text()
+        self.assertIn("'=danger", text)
+        self.assertIn("'=cmd", text)
+
+
 if __name__ == "__main__":
     unittest.main()

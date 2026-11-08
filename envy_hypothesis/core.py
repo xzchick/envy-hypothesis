@@ -26,9 +26,11 @@ Standard library only, apart from ``cryptography`` for the encrypted envelope.
 
 from __future__ import annotations
 
+import csv
 import datetime
 import hashlib
 import html
+import io
 import json
 import os
 import stat
@@ -526,9 +528,15 @@ def inspect(source, secret):
 
 # --- Plaintext export --------------------------------------------------------
 
+def _safe(value):
+    """Guard a CSV field against spreadsheet formula injection."""
+    text = str(value)
+    return "'" + text if text[:1] in ("=", "+", "-", "@") else text
+
+
 def export(source, destination, secret, format="html"):
-    if format not in ("html", "json"):
-        raise HypothesisError("Export format must be html or json")
+    if format not in ("html", "json", "csv"):
+        raise HypothesisError("Export format must be html, json or csv")
     data, envelope = _load(source, secret)
     report = score(source, secret)
     label_by_id = {h["id"]: h["label"] for h in data["hypotheses"]}
@@ -544,6 +552,16 @@ def export(source, destination, secret, format="html"):
                           "and a small separation between the top hypotheses means the evidence is not decisive."}
     if format == "json":
         output = (json.dumps(out, ensure_ascii=False, indent=2) + "\n").encode("utf-8")
+    elif format == "csv":
+        # Long format: one row per rated evidence/hypothesis cell, plus a rank row set.
+        buf = io.StringIO()
+        writer = csv.writer(buf)
+        writer.writerow(["evidence", "source", "credibility", "hypothesis", "rating_value", "rating_label"])
+        for item in matrix(source, secret)["evidence"]:
+            for hid, cell in sorted(item["ratings"].items()):
+                writer.writerow([_safe(item["text"]), _safe(item["source"]), item["credibility"],
+                                 _safe(label_by_id.get(hid, hid)), cell["value"], cell["label"]])
+        output = buf.getvalue().encode("utf-8")
     else:
         def esc(v):
             return html.escape(str(v), quote=True)
