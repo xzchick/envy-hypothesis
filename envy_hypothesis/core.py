@@ -554,6 +554,25 @@ def inspect(source, secret):
                        "happened, and every rating and weight is your own judgement."}
 
 
+def history(source, secret):
+    """The event journal, newest first, with the label of the hypothesis or evidence
+    each event refers to (when it still exists). Read-only — more readable than the
+    raw ref ids in inspect()."""
+    data, _ = _load(source, secret)
+    labels = {h["id"]: ("hypothesis", h["label"]) for h in data["hypotheses"]}
+    labels.update({e["id"]: ("evidence", e["text"]) for e in data["evidence"]})
+    rows = []
+    for record in data["journal"]:
+        ref_kind, ref_label = labels.get(record["ref_id"], (None, None))
+        rows.append({"recorded_utc": record["recorded_utc"], "kind": record["kind"],
+                     "ref_id": record["ref_id"], "ref_kind": ref_kind, "ref_label": ref_label,
+                     "detail": record["detail"]})
+    rows.reverse()
+    return {"analysis_id": data["analysis_id"], "title": data["title"], "count": len(rows), "events": rows,
+            "basis": "The journal is hash-chained, so events cannot be reordered or edited without breaking "
+                     "the chain — but it orders events, it does not prove when they happened."}
+
+
 # --- Plaintext export --------------------------------------------------------
 
 def _safe(value):

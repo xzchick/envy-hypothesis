@@ -264,5 +264,28 @@ class HypothesisTest(unittest.TestCase):
         self.assertEqual(reloaded["hypotheses"][0]["note"], "")
 
 
+    # ----- history view (v0.2) -----------------------------------------
+    def test_history_joins_labels_newest_first(self):
+        p = self.analysis()
+        p1 = self._seq(); hid = core.add_hypothesis(p, p1, self.SECRET, "Deploy bug")["hypothesis_id"]
+        p2 = self._seq(); eid = core.add_evidence(p1, p2, self.SECRET, "errors spiked")["evidence_id"]
+        p3 = self._seq(); core.rate(p2, p3, self.SECRET, eid, hid, 2)
+        h = core.history(p3, self.SECRET)
+        self.assertEqual(h["count"], 3)
+        self.assertEqual(h["events"][0]["kind"], "rated")                 # newest first
+        self.assertEqual(h["events"][0]["ref_label"], "errors spiked")    # rate refs the evidence
+        self.assertEqual(h["events"][0]["ref_kind"], "evidence")
+        hyp_evt = next(e for e in h["events"] if e["kind"] == "hypothesis_added")
+        self.assertEqual(hyp_evt["ref_label"], "Deploy bug")
+
+    def test_history_removed_item_has_no_label(self):
+        p = self.analysis()
+        p1 = self._seq(); hid = core.add_hypothesis(p, p1, self.SECRET, "H")["hypothesis_id"]
+        p2 = self._seq(); core.remove_hypothesis(p1, p2, self.SECRET, hid)
+        h = core.history(p2, self.SECRET)
+        added = next(e for e in h["events"] if e["kind"] == "hypothesis_added")
+        self.assertIsNone(added["ref_label"])
+
+
 if __name__ == "__main__":
     unittest.main()
