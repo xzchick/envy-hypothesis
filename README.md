@@ -28,7 +28,7 @@ AES-256-GCM encrypted analyses, a SHA-256 hash-chained event journal, revision-p
 </p>
 
 <p align="center">
-  <img src="assets/readme/window.png" width="90%" alt="The Hypothesis window: the ACH matrix — evidence rows against hypothesis columns, each cell rated from very inconsistent to very consistent and coloured, in the ENVY neon theme" />
+  <img src="assets/readme/demo.gif" width="90%" alt="ENVY Hypothesis in motion: the ACH matrix of evidence against hypotheses, then the ranking by weighted inconsistency, in the animated ENVY neon window" />
 </p>
 
 <p align="center"><sub>A real native window — not a browser view. The wordmark pulses, a premise forks into competing branches in the header, and a light travels the accent bar.</sub></p>
