@@ -13,8 +13,8 @@ import json
 import sys
 
 from . import __version__
-from .core import (HypothesisError, add_evidence, add_hypothesis, check_passphrase, create,
-                   export, inspect, matrix, rate, remove_evidence, remove_hypothesis,
+from .core import (HypothesisError, add_evidence, add_hypothesis, annotate, check_passphrase,
+                   create, export, inspect, matrix, rate, remove_evidence, remove_hypothesis,
                    reweight, score)
 
 
@@ -39,12 +39,14 @@ def build_parser() -> argparse.ArgumentParser:
     ah.add_argument("analysis")
     ah.add_argument("destination", help="a new analysis file; never overwritten")
     ah.add_argument("--label", required=True, help="the hypothesis, stated plainly")
+    ah.add_argument("--note", default="", help="an optional rationale note")
 
     ae = commands.add_parser("evidence", help="add an evidence item (writes a new revision)")
     ae.add_argument("analysis")
     ae.add_argument("destination", help="a new analysis file; never overwritten")
     ae.add_argument("--text", required=True, help="the evidence or argument")
     ae.add_argument("--source", default="", help="an optional source note")
+    ae.add_argument("--note", default="", help="an optional rationale note")
     ae.add_argument("--credibility", type=int, default=3, metavar="1-5",
                     help="how much weight it carries, 1 (weak) to 5 (strong); default 3")
 
@@ -62,6 +64,12 @@ def build_parser() -> argparse.ArgumentParser:
     rw.add_argument("destination", help="a new analysis file; never overwritten")
     rw.add_argument("--evidence", required=True, help="the evidence id")
     rw.add_argument("--credibility", type=int, required=True, metavar="1-5")
+
+    an = commands.add_parser("annotate", help="set a rationale note on a hypothesis or evidence item")
+    an.add_argument("analysis")
+    an.add_argument("destination", help="a new analysis file; never overwritten")
+    an.add_argument("--id", required=True, help="the hypothesis or evidence id")
+    an.add_argument("--note", default="", help="the note (empty clears it)")
 
     rmh = commands.add_parser("remove-hypothesis", help="remove a hypothesis and its ratings")
     rmh.add_argument("analysis")
@@ -104,13 +112,17 @@ def _run(args) -> int:
         print(f"analysis created → {result['output']} (revision 0)")
         return 0
     if args.command == "hypothesis":
-        result = add_hypothesis(args.analysis, args.destination, _passphrase(), args.label)
+        result = add_hypothesis(args.analysis, args.destination, _passphrase(), args.label, args.note)
         print(f"hypothesis added {result['hypothesis_id']} → {result['output']} (revision {result['revision']})")
         return 0
     if args.command == "evidence":
         result = add_evidence(args.analysis, args.destination, _passphrase(), args.text,
-                              args.source, args.credibility)
+                              args.source, args.credibility, args.note)
         print(f"evidence added {result['evidence_id']} → {result['output']} (revision {result['revision']})")
+        return 0
+    if args.command == "annotate":
+        result = annotate(args.analysis, args.destination, _passphrase(), args.id, args.note)
+        print(f"annotated {result['annotated']} → {result['output']} (revision {result['revision']})")
         return 0
     if args.command == "rate":
         result = rate(args.analysis, args.destination, _passphrase(), args.evidence,
