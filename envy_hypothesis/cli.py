@@ -14,7 +14,7 @@ import sys
 
 from . import __version__
 from .core import (HypothesisError, add_evidence, add_hypothesis, annotate, check_passphrase,
-                   create, export, inspect, matrix, rate, remove_evidence, remove_hypothesis,
+                   create, export, history, inspect, matrix, rate, remove_evidence, remove_hypothesis,
                    reweight, score)
 
 
@@ -90,6 +90,9 @@ def build_parser() -> argparse.ArgumentParser:
     insp = commands.add_parser("inspect", help="print the decrypted analysis and journal (read-only)")
     insp.add_argument("analysis")
 
+    hist = commands.add_parser("history", help="the event journal, newest first, with item labels (read-only)")
+    hist.add_argument("analysis")
+
     exp = commands.add_parser("export", help="write a plaintext HTML or JSON report")
     exp.add_argument("analysis")
     exp.add_argument("destination", help="a new report file; never overwritten")
@@ -161,6 +164,9 @@ def _run(args) -> int:
         return 0
     if args.command == "matrix":
         print(json.dumps(matrix(args.analysis, _passphrase()), indent=2, ensure_ascii=False))
+        return 0
+    if args.command == "history":
+        print(json.dumps(history(args.analysis, _passphrase()), indent=2, ensure_ascii=False))
         return 0
     if args.command == "export":
         result = export(args.analysis, args.destination, _passphrase(), args.format)
