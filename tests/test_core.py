@@ -231,5 +231,38 @@ class HypothesisTest(unittest.TestCase):
         self.assertIn("'=cmd", text)
 
 
+    # ----- notes / annotate (v0.2) -------------------------------------
+    def test_notes_on_add_and_in_matrix(self):
+        p = self.analysis()
+        p1 = self._seq(); core.add_hypothesis(p, p1, self.SECRET, "Deploy bug", note="a deploy landed at 22:10")
+        p2 = self._seq(); core.add_evidence(p1, p2, self.SECRET, "errors spiked", note="from app.log")
+        m = core.matrix(p2, self.SECRET)
+        self.assertEqual(m["hypotheses"][0]["note"], "a deploy landed at 22:10")
+        self.assertEqual(m["evidence"][0]["note"], "from app.log")
+
+    def test_annotate_sets_note_on_hypothesis_or_evidence(self):
+        p = self.analysis()
+        p1 = self._seq(); hid = core.add_hypothesis(p, p1, self.SECRET, "H")["hypothesis_id"]
+        p2 = self._seq(); eid = core.add_evidence(p1, p2, self.SECRET, "E")["evidence_id"]
+        p3 = self._seq(); core.annotate(p2, p3, self.SECRET, hid, "why this hypothesis")
+        p4 = self._seq(); core.annotate(p3, p4, self.SECRET, eid, "why this evidence")
+        data, _ = core._load(p4, self.SECRET)
+        self.assertEqual(next(h for h in data["hypotheses"] if h["id"] == hid)["note"], "why this hypothesis")
+        self.assertEqual(next(e for e in data["evidence"] if e["id"] == eid)["note"], "why this evidence")
+        self.assertEqual(data["journal"][-1]["kind"], "annotated")
+        with self.assertRaises(core.HypothesisError):
+            core.annotate(p4, self._seq(), self.SECRET, "11111111-1111-1111-1111-111111111111", "x")
+
+    def test_pre_note_analysis_migrates_on_load(self):
+        p = self.analysis()
+        p1 = self._seq(); core.add_hypothesis(p, p1, self.SECRET, "H")
+        data, _ = core._load(p1, self.SECRET)
+        del data["hypotheses"][0]["note"]                   # simulate a v0.1 analysis
+        legacy = self.dir / "legacy.envyhypo"
+        core.new_file(legacy, core.encrypt_bytes(core._canonical(data), self.SECRET))
+        reloaded, _ = core._load(legacy, self.SECRET)       # must not raise
+        self.assertEqual(reloaded["hypotheses"][0]["note"], "")
+
+
 if __name__ == "__main__":
     unittest.main()

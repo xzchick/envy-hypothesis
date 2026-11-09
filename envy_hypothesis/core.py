@@ -212,15 +212,16 @@ def _rating(value):
 # --- Hypothesis, evidence and journal validation -----------------------------
 
 def _validate_hypothesis(value):
-    if not isinstance(value, dict) or set(value) != {"id", "label", "created_utc"}:
+    if not isinstance(value, dict) or set(value) != {"id", "label", "created_utc", "note"}:
         raise HypothesisError("Invalid hypothesis")
     return {"id": _uuid(value["id"], "hypothesis id"),
             "label": _text(value["label"], "hypothesis", MAX_LABEL),
-            "created_utc": _timestamp(value["created_utc"], "created_utc")}
+            "created_utc": _timestamp(value["created_utc"], "created_utc"),
+            "note": _text(value["note"], "note", MAX_NOTE, allow_empty=True)}
 
 
 def _validate_evidence(value):
-    fields = {"id", "text", "source", "credibility", "created_utc", "ratings"}
+    fields = {"id", "text", "source", "credibility", "created_utc", "ratings", "note"}
     if not isinstance(value, dict) or set(value) != fields:
         raise HypothesisError("Invalid evidence item")
     ratings = value["ratings"]
@@ -237,7 +238,8 @@ def _validate_evidence(value):
             "source": _text(value["source"], "source", MAX_SOURCE, allow_empty=True),
             "credibility": _credibility(value["credibility"]),
             "created_utc": _timestamp(value["created_utc"], "created_utc"),
-            "ratings": normalized}
+            "ratings": normalized,
+            "note": _text(value["note"], "note", MAX_NOTE, allow_empty=True)}
 
 
 def _record_digest(record):
@@ -246,7 +248,7 @@ def _record_digest(record):
 
 
 _EVENT_KINDS = ("hypothesis_added", "hypothesis_removed",
-                "evidence_added", "evidence_removed", "rated")
+                "evidence_added", "evidence_removed", "rated", "annotated")
 
 
 def _validate_record(value):
@@ -321,13 +323,24 @@ def _validate_analysis(data):
 
 # --- Load / write ------------------------------------------------------------
 
+def _migrate(data):
+    """Bring an older analysis forward in memory. Hypotheses and evidence gained a
+    `note` in v0.2; items that predate it get an empty one. The journal is
+    unaffected (hypotheses and evidence are not part of its hash chain)."""
+    if isinstance(data, dict):
+        for item in (data.get("hypotheses") or []) + (data.get("evidence") or []):
+            if isinstance(item, dict) and "note" not in item:
+                item["note"] = ""
+    return data
+
+
 def _load(source, secret):
     encrypted = read_regular(source, MAX_ENVELOPE)
     try:
         data = json.loads(decrypt_bytes(encrypted, secret))
     except (json.JSONDecodeError, UnicodeError, RecursionError):
         raise HypothesisError("Encrypted analysis does not contain valid JSON") from None
-    return _validate_analysis(data), hashlib.sha256(encrypted).hexdigest()
+    return _validate_analysis(_migrate(data)), hashlib.sha256(encrypted).hexdigest()
 
 
 def _write(destination, data, secret):
@@ -365,11 +378,11 @@ def create(destination, title, secret, question=""):
 
 # --- Mutations (each writes a new, preserved revision) -----------------------
 
-def add_hypothesis(source, destination, secret, label):
+def add_hypothesis(source, destination, secret, label, note=""):
     data, envelope = _load(source, secret)
     if len(data["hypotheses"]) >= MAX_HYPOTHESES:
         raise HypothesisError(f"An analysis holds at most {MAX_HYPOTHESES} hypotheses")
-    hyp = _validate_hypothesis({"id": str(uuid.uuid4()), "label": label, "created_utc": _utc()})
+    hyp = _validate_hypothesis({"id": str(uuid.uuid4()), "label": label, "created_utc": _utc(), "note": note})
     data["hypotheses"] = sorted(data["hypotheses"] + [hyp], key=lambda h: h["id"])
     _append_event(data, "hypothesis_added", hyp["id"], label[:120])
     return dict(_save_revision(data, envelope, destination, secret), hypothesis_id=hyp["id"])
@@ -388,15 +401,29 @@ def remove_hypothesis(source, destination, secret, hypothesis_id):
     return dict(_save_revision(data, envelope, destination, secret), removed=hypothesis_id)
 
 
-def add_evidence(source, destination, secret, text, source_text="", credibility=3):
+def add_evidence(source, destination, secret, text, source_text="", credibility=3, note=""):
     data, envelope = _load(source, secret)
     if len(data["evidence"]) >= MAX_EVIDENCE:
         raise HypothesisError(f"An analysis holds at most {MAX_EVIDENCE} evidence items")
     item = _validate_evidence({"id": str(uuid.uuid4()), "text": text, "source": source_text,
-                               "credibility": credibility, "created_utc": _utc(), "ratings": {}})
+                               "credibility": credibility, "created_utc": _utc(), "ratings": {}, "note": note})
     data["evidence"] = sorted(data["evidence"] + [item], key=lambda e: e["id"])
     _append_event(data, "evidence_added", item["id"], f"cred {credibility} — {text[:110]}")
     return dict(_save_revision(data, envelope, destination, secret), evidence_id=item["id"])
+
+
+def annotate(source, destination, secret, item_id, note):
+    """Set (or clear, with an empty note) the note on a hypothesis or evidence item,
+    found by id. Writes a new, preserved revision."""
+    data, envelope = _load(source, secret)
+    item_id = _uuid(item_id, "item id")
+    target = next((h for h in data["hypotheses"] if h["id"] == item_id), None) \
+        or next((e for e in data["evidence"] if e["id"] == item_id), None)
+    if target is None:
+        raise HypothesisError("No such hypothesis or evidence item in this analysis")
+    target["note"] = _text(note, "note", MAX_NOTE, allow_empty=True)
+    _append_event(data, "annotated", item_id, (note or "")[:120])
+    return dict(_save_revision(data, envelope, destination, secret), annotated=item_id)
 
 
 def remove_evidence(source, destination, secret, evidence_id):
@@ -505,9 +532,10 @@ def matrix(source, secret):
     data, _ = _load(source, secret)
     return {"analysis_id": data["analysis_id"], "title": data["title"], "question": data["question"],
             "revision": data["revision"],
-            "hypotheses": [{"id": h["id"], "label": h["label"]} for h in data["hypotheses"]],
+            "hypotheses": [{"id": h["id"], "label": h["label"], "note": h["note"]}
+                           for h in data["hypotheses"]],
             "evidence": [{"id": e["id"], "text": e["text"], "source": e["source"],
-                          "credibility": e["credibility"],
+                          "credibility": e["credibility"], "note": e["note"],
                           "ratings": {hid: {"value": v, "label": RATINGS[v]}
                                       for hid, v in e["ratings"].items()}}
                          for e in data["evidence"]],
